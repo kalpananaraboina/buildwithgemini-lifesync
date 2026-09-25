@@ -144,25 +144,56 @@ def _extract_parts(parts: list) -> list[dict]:
                     out.append({"kind": "text", "text": cleaned_text})
                 elif not parts_found:
                     out.append({"kind": "text", "text": text})
-            elif text.strip().startswith("[") and "beginRendering" in text and "surfaceUpdate" in text:
+            elif ("beginRendering" in text or "surfaceUpdate" in text):
+                parsed = None
                 try:
-                    data = json.loads(text.strip())
-                    if isinstance(data, list):
-                        for msg in data:
-                            out.append({"kind": "a2ui", "data": msg})
-                    else:
-                        out.append({"kind": "text", "text": text})
+                    parsed = json.loads(text.strip())
                 except Exception:
+                    try:
+                        import ast
+                        parsed = ast.literal_eval(text.strip())
+                    except Exception:
+                        pass
+                if isinstance(parsed, dict):
+                    actual_msg = parsed.get("data", parsed)
+                    out.append({"kind": "a2ui", "data": actual_msg})
+                elif isinstance(parsed, list):
+                    for msg in parsed:
+                        actual_msg = msg.get("data", msg) if isinstance(msg, dict) else msg
+                        out.append({"kind": "a2ui", "data": actual_msg})
+                else:
                     out.append({"kind": "text", "text": text})
             else:
                 out.append({"kind": "text", "text": text})
         elif getattr(root, "data", None) is not None:
+            data_val = root.data
             meta = getattr(root, "metadata", None) or {}
             mime = meta.get("mimeType") if isinstance(meta, dict) else None
-            if mime == _A2UI_MIME:
-                out.append({"kind": "a2ui", "data": root.data})
+
+            # Attempt to parse stringified or nested A2UI dict
+            parsed = data_val
+            if isinstance(parsed, str):
+                try:
+                    parsed = json.loads(parsed.strip())
+                except Exception:
+                    try:
+                        import ast
+                        parsed = ast.literal_eval(parsed.strip())
+                    except Exception:
+                        pass
+
+            if isinstance(parsed, dict) and ("beginRendering" in parsed or "surfaceUpdate" in parsed):
+                out.append({"kind": "a2ui", "data": parsed})
+            elif isinstance(parsed, dict) and "data" in parsed and isinstance(parsed["data"], dict) and ("beginRendering" in parsed["data"] or "surfaceUpdate" in parsed["data"]):
+                out.append({"kind": "a2ui", "data": parsed["data"]})
+            elif isinstance(parsed, list):
+                for msg in parsed:
+                    actual = msg.get("data", msg) if isinstance(msg, dict) else msg
+                    out.append({"kind": "a2ui", "data": actual})
+            elif mime == _A2UI_MIME:
+                out.append({"kind": "a2ui", "data": data_val})
             else:
-                out.append({"kind": "text", "text": str(root.data)})
+                out.append({"kind": "text", "text": str(data_val)})
         elif isinstance(root, FilePart):
             uri = getattr(getattr(root, "file", None), "uri", None)
             if uri:
@@ -238,14 +269,15 @@ async def chat(req: Request):
     user_id = body.get("user_id") or "web-user"
     parts: list[dict] = []
 
-    # 1. Try local agent playground first (runs latest tools, image generator, A2UI)
-    try:
-        async with httpx.AsyncClient(timeout=120) as local_http:
-            local_parts = await _chat_local(local_http, message, user_id)
-            if local_parts is not None and len(local_parts) > 0:
-                return JSONResponse({"parts": local_parts})
-    except Exception as e:
-        logger.debug("Local agent unavailable: %s", e)
+    # 1. Try local agent playground first if running locally (not in Cloud Run)
+    if not os.getenv("K_SERVICE"):
+        try:
+            async with httpx.AsyncClient(timeout=120) as local_http:
+                local_parts = await _chat_local(local_http, message, user_id)
+                if local_parts is not None and len(local_parts) > 0:
+                    return JSONResponse({"parts": local_parts})
+        except Exception as e:
+            logger.debug("Local agent unavailable: %s", e)
 
     # 2. Deployed cloud agent fallback over A2A
     async with httpx.AsyncClient(headers=_auth_headers(), timeout=120) as client:
