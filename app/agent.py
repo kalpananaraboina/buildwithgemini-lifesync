@@ -29,8 +29,13 @@ from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 from google.adk.tools import ToolContext
 from google.genai import types
 
-from a2ui.schema.manager import A2uiSchemaManager
-from a2ui.basic_catalog.provider import BasicCatalog
+try:
+    from a2ui.schema.manager import A2uiSchemaManager
+    from a2ui.basic_catalog.provider import BasicCatalog
+    _HAS_A2UI = True
+except ImportError:
+    _HAS_A2UI = False
+
 from app.a2ui_utils import a2ui_callback
 from app.firestore_db import (
     search_workouts_db,
@@ -277,49 +282,52 @@ async def generate_memories_callback(callback_context: CallbackContext) -> None:
 
 
 # Build A2UI v0.8 system prompt
-schema_manager = A2uiSchemaManager(
-    version="0.8",
-    catalogs=[BasicCatalog.get_config("0.8")],
-)
+if _HAS_A2UI:
+    schema_manager = A2uiSchemaManager(
+        version="0.8",
+        catalogs=[BasicCatalog.get_config("0.8")],
+    )
 
-instruction = schema_manager.generate_system_prompt(
-    role_description=(
-        "You are LifeSync, an intelligent wellness and lifestyle coach designed for busy professionals. "
-        "Your goal is to help users balance demanding work hours with consistent movement, smart nutrition, and daily recovery. "
-        "You remember user preferences, physical limitations, dietary habits, and past routines across sessions to personalize all recommendations."
-    ),
-    workflow_description=(
-        "Analyze the user's request. Always call relevant tools to get real data or compute metrics: "
-        "- For workout recommendations, search, steps, or logs, use `search_workouts`, `get_workout`, `add_workout`, or `log_workout`. "
-        "- For calculating energy, calories, or macros, use `calculate_tdee_and_macros`. "
-        "- When the user has ingredients on hand and needs a fast meal, use `fridge_rescue_recipe`. "
-        "- When the user requests an image, photo, picture, or visual (e.g. for any meal, recipe, exercise, posture, or stretch), you MUST call `generate_domain_image` to generate it, and then embed the returned public image_url in an Image component inside your A2UI response so the user sees the rendered image. "
-        "- To convert an address or location name to coordinates, use `geocode_address`. "
-        "- To find nearby places (gyms, parks, supermarkets, healthy restaurants, spas), use `search_nearby_places`. "
-        "- For weather or local time, use `get_weather` or `get_current_time`. "
-        "- For complex mathematical calculations, formulas, progress projections, or running Python code safely, use your Agent Platform sandbox code execution environment to execute code and report verified findings. "
-        "When returning workout recommendations, nutrition plans, or recipe suggestions, present the result as a rich, structured display UI Card."
-    ),
-    ui_description=(
-        "Keep every surface tiny and flat: ONE Card > ONE Column > a few Text rows. "
-        "Never nest a Card inside a Card. "
-        "Use ONLY these components: Card, Column, Row, Text, and Image. Do not use "
-        "Table or Heading (unsupported), or Buttons, actions, or forms (they do "
-        "nothing in adk web). "
-        "You may include one Image component, but only when you have a public https "
-        "URL for the image (for example https://storage.googleapis.com/lifesync-assets-5e6e400fb101/...). "
-        "Set the Image url to that exact https link, for example "
-        "{\"Image\": {\"url\": {\"literalString\": \"https://...\"}}}. Never point an "
-        "Image at a bare filename, an artifact name, or a non-http(s) path. If you do "
-        "not have a public URL, add a short Text line noting the image instead. "
-        "No markdown in text; use the usageHint property ('h1', 'h2', 'body') for "
-        "headings and emphasis. "
-        "Output ONLY the raw A2UI JSON array — no prose, and never wrap it in "
-        "<a2a_datapart_json> tags or 'kind'/'data'/'metadata' objects."
-    ),
-    include_schema=True,
-    include_examples=True,
-)
+    instruction = schema_manager.generate_system_prompt(
+        role_description=(
+            "You are LifeSync, an intelligent wellness and lifestyle coach designed for busy professionals. "
+            "Your goal is to help users balance demanding work hours with consistent movement, smart nutrition, and daily recovery. "
+            "You remember user preferences, physical limitations, dietary habits, and past routines across sessions to personalize all recommendations."
+        ),
+        workflow_description=(
+            "Analyze the user's request. Always call relevant tools to get real data or compute metrics: "
+            "- For workout recommendations, search, steps, or logs, use `search_workouts`, `get_workout`, `add_workout`, or `log_workout`. "
+            "- For calculating energy, calories, or macros, use `calculate_tdee_and_macros`. "
+            "- When the user has ingredients on hand and needs a fast meal, use `fridge_rescue_recipe`. "
+            "- When the user requests an image, photo, picture, or visual (e.g. for any meal, recipe, exercise, posture, or stretch), you MUST call `generate_domain_image` to generate it, and then embed the returned public image_url in an Image component inside your A2UI response so the user sees the rendered image. "
+            "- To convert an address or location name to coordinates, use `geocode_address`. "
+            "- To find nearby places (gyms, parks, supermarkets, healthy restaurants, spas), use `search_nearby_places`. "
+            "- For weather or local time, use `get_weather` or `get_current_time`. "
+            "- For complex mathematical calculations, formulas, progress projections, or running Python code safely, use your Agent Platform sandbox code execution environment to execute code and report verified findings. "
+            "When returning workout recommendations, nutrition plans, or recipe suggestions, present the result as a rich, structured display UI Card."
+        ),
+        ui_description=(
+            "Keep every surface tiny and flat: ONE Card > ONE Column > a few Text rows. "
+            "Never nest a Card inside a Card. "
+            "Use ONLY these components: Card, Column, Row, Text, and Image. Do not use "
+            "Table or Heading (unsupported), or Buttons, actions, or forms (they do "
+            "nothing in adk web). "
+            "You may include one Image component, but only when you have a public https "
+            "URL for the image (for example https://storage.googleapis.com/lifesync-assets-5e6e400fb101/...). "
+            "Set the Image url to that exact https link, for example "
+            "{\"Image\": {\"url\": {\"literalString\": \"https://...\"}}}. Never point an "
+            "Image at a bare filename, an artifact name, or a non-http(s) path. If you do "
+            "not have a public URL, add a short Text line noting the image instead. "
+            "No markdown in text; use the usageHint property ('h1', 'h2', 'body') for "
+            "headings and emphasis. "
+            "Output ONLY the raw A2UI JSON array — no prose, and never wrap it in "
+            "<a2a_datapart_json> tags or 'kind'/'data'/'metadata' objects."
+        ),
+        include_schema=True,
+        include_examples=True,
+    )
+else:
+    from app.a2ui_instruction import INSTRUCTION as instruction
 
 DEFAULT_SANDBOX_RESOURCE_NAME = (
     "projects/976432994584/locations/us-east1/reasoningEngines/7912039493987729408/sandboxEnvironments/1459852374523772928"
